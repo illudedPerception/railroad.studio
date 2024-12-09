@@ -79,7 +79,12 @@ export interface CustomData {
     value: number;
 }
 
-export type GvasText = GvasTextNone | GvasTextArgumentFormat | GvasTextBase;
+export type GvasText =
+    | GvasTextNone
+    | GvasTextBase
+    | GvasTextArgumentFormat
+    | GvasTextAsNumber
+    ;
 
 // Component type 255
 export interface GvasTextNone {
@@ -98,13 +103,44 @@ export interface GvasTextBase {
 // Component type 3
 export interface GvasTextArgumentFormat {
     flags: number;
-    guid: GvasString;
-    pattern: GvasString;
-    args: FormatArgumentValue[];
+    sourceFormat: GvasText;
+    args: FormatArgumentValueMap[];
 }
 
-export interface FormatArgumentValue {
+// Component type 4
+export interface GvasTextAsNumber {
+    flags: number;
+    sourceValue: FormatArgumentValue;
+    formatOptions?: NumberFormattingOptions | undefined;
+    targetCulture: GvasString;
+}
+
+export interface FormatArgumentValueMap {
     name: GvasString;
-    contentType: number;
-    values: GvasString[];
+    value: FormatArgumentValue;
+}
+
+export type FormatArgumentValue =
+    | ['Int', number]
+    | ['Text', GvasText]
+    ;
+
+export interface NumberFormattingOptions {
+    alwaysIncludeSign: boolean;
+    useGrouping: boolean;
+    roundingMode: RoundingMode;
+    minimumIntegralDigits: number;
+    maximumIntegralDigits: number;
+    minimumFractionalDigits: number;
+    maximumFractionalDigits: number;
+}
+
+export enum RoundingMode {
+    HalfToEven = 0,
+    HalfFromZero = 1,
+    HalfToZero = 2,
+    FromZero = 3,
+    ToZero = 4,
+    ToNegativeInfinity = 5,
+    ToPositiveInfinity = 6,
 }

@@ -10,6 +10,10 @@ import {
     GvasTextNone,
     FormatArgumentValue,
     gvasToString,
+    GvasTextAsNumber,
+    FormatArgumentValueMap,
+    NumberFormattingOptions,
+    RoundingMode,
 } from './Gvas';
 import {Permission} from './Permission';
 import {Quaternion} from './Quaternion';
@@ -623,115 +627,148 @@ function parseStructArray(
 /**
  * Parse a struct array from a buffer.
  * @param {ArrayBuffer} buffer
+ * @param {number} pos
  * @return {GvasText[]}
  */
-function parseTextArray(buffer: ArrayBuffer): [number, GvasText[]] {
+function parseTextArray(buffer: ArrayBuffer, pos = 0): [number, GvasText[]] {
     // (u32) Entry Count
     const entryCount = new Uint32Array(buffer, 0, 1)[0];
-    let pos = 4;
+    pos += 4;
     const array: GvasText[] = [];
     for (let i = 0; i < entryCount; i++) {
-        // (u32) Flags
-        const flags = new Uint32Array(buffer.slice(pos, pos + 4))[0];
-        pos += 4;
-        // (u8) Component Type
-        const componentType = new Uint8Array(buffer, pos, 1)[0];
-        pos++;
-        // Read the component
-        if (componentType === 255) {
-            const count = new Uint32Array(buffer.slice(pos, pos + 4))[0];
-            pos += 4;
-            const values: GvasString[] = [];
-            for (let k = 0; k < count; k++) {
-                let value;
-                [pos, value] = parseString(buffer, pos);
-                values.push(value);
-            }
-            const value: GvasTextNone = {flags, values};
-            array.push(value);
-        } else if (componentType === 0) {
-            let namespace;
-            let key;
-            let value;
-            [pos, namespace] = parseString(buffer, pos);
-            [pos, key] = parseString(buffer, pos);
-            [pos, value] = parseString(buffer, pos);
-            const values: GvasTextBase = {flags, key, namespace, value};
-            array.push(values);
-        } else if (componentType === 3) {
-            // text_rich:
-            //   seq:
-            //     - id: flags
-            //       contents: [8, 0, 0, 0, 0, 0, 0, 0, 0]
-            const argumentType = new Uint8Array(buffer, pos, 1)[0];
-            if (argumentType !== 8) throw new Error(`Expected argumentType == 8, ${argumentType}`);
-            const unknown = new Uint32Array(buffer.slice(pos + 1, pos + 5))[0];
-            if (unknown !== 0) throw new Error(`Expected unknown == 0, ${unknown}`);
-            pos += 5;
-            let unknownStr;
-            [pos, unknownStr] = parseString(buffer, pos);
-            if (unknownStr && unknownStr.length) throw new Error(`Expected empty str, ${unknownStr}`);
-            //     - id: component_guid
-            //       type: string
-            let guid;
-            [pos, guid] = parseString(buffer, pos);
-            //     - id: text_format_pattern
-            //       type: string
-            let pattern;
-            [pos, pattern] = parseString(buffer, pos);
-            //     - id: text_format_arg_count
-            //       type: u4
-            const textFormatArgCount = new Uint32Array(buffer.slice(pos, pos + 4))[0];
-            pos += 4;
-            //     - id: text_format
-            //       type: text_format
-            //       repeat: expr
-            //       repeat-expr: text_format_arg_count
-            const args: FormatArgumentValue[] = [];
-            for (let j = 0; j < textFormatArgCount; j++) {
-                // textFormat:
-                //   seq:
-                //     - id: format_key
-                //       type: string
-                let name;
-                [pos, name] = parseString(buffer, pos);
-                //     - id: separator
-                //       contents: [4]
-                const separator = new Uint8Array(buffer, pos++, 1)[0];
-                if (separator !== 4) {
-                    throw new Error(`Expected separator == 4, ${separator}`);
-                }
-                //     - id: flags
-                //       type: u4
-                const contentType = new Uint32Array(buffer.slice(pos, pos + 4))[0];
-                pos += 4;
-                //     - id: component_type
-                //       contents: [255]
-                const type = new Uint8Array(buffer, pos++, 1)[0];
-                if (type !== 255) {
-                    throw new Error(`Expected type == 255, ${type}`);
-                }
-                //     - id: count
-                //       type: u4
-                const count = new Uint32Array(buffer.slice(pos, pos + 4))[0];
-                pos += 4;
-                const values = [];
-                for (let k = 0; k < count; k++) {
-                    // - id: value
-                    //   type: string
-                    //   repeat: expr
-                    //   repeat-expr: count
-                    let value;
-                    [pos, value] = parseString(buffer, pos);
-                    values.push(value);
-                }
-                args.push({contentType, name, values});
-            }
-            const values: GvasTextArgumentFormat = {args, flags, guid, pattern};
-            array.push(values);
-        } else {
-            throw new Error(`Unexpected component type ${componentType} with flags ${flags}`);
-        }
+        let text;
+        [pos, text] = parseText(buffer, pos);
+        array.push(text);
     }
     return [pos, array];
+}
+
+function parseText(buffer: ArrayBuffer, pos = 0): [number, GvasText] {
+    // (u32) Flags
+    const flags = new Uint32Array(buffer.slice(pos, pos + 4))[0];
+    pos += 4;
+    // (u8) FTextHistory type
+    const componentType = new Uint8Array(buffer, pos, 1)[0];
+    pos++;
+    // FTextHistory
+    if (componentType === 255) { // None
+        const count = new Uint32Array(buffer.slice(pos, pos + 4))[0];
+        pos += 4;
+        const values: GvasString[] = [];
+        for (let k = 0; k < count; k++) {
+            let value;
+            [pos, value] = parseString(buffer, pos);
+            values.push(value);
+        }
+        const value: GvasTextNone = {flags, values};
+        return [pos, value];
+    } else if (componentType === 0) { // Base
+        let namespace;
+        let key;
+        let value;
+        [pos, namespace] = parseString(buffer, pos);
+        [pos, key] = parseString(buffer, pos);
+        [pos, value] = parseString(buffer, pos);
+        const base: GvasTextBase = {flags, key, namespace, value};
+        return [pos, base];
+    } else if (componentType === 3) { // ArgumentFormat
+        let sourceFormat;
+        [pos, sourceFormat] = parseText(buffer, pos);
+
+        // (u32) Argument Count
+        const textFormatArgCount = new Uint32Array(buffer.slice(pos, pos + 4))[0];
+        pos += 4;
+        const args: FormatArgumentValueMap[] = [];
+        for (let j = 0; j < textFormatArgCount; j++) {
+            // (str) Name
+            let name;
+            [pos, name] = parseString(buffer, pos);
+            // (text) Value
+            let value;
+            [pos, value] = parseFormatArgumentValue(buffer, pos);
+            args.push({name, value});
+        }
+
+        const value: GvasTextArgumentFormat = {args, flags, sourceFormat};
+        return [pos, value];
+    } else if (componentType === 4) { // AsNumber
+        // (FAV) Source Value
+        let sourceValue: FormatArgumentValue;
+        [pos, sourceValue] = parseFormatArgumentValue(buffer, pos);
+
+        // (b32) Has Number Formatting Options
+        let formatOptions: NumberFormattingOptions | undefined;
+        const hasFormatOptions = new Uint32Array(buffer.slice(pos, pos + 4))[0];
+        pos += 4;
+        if (hasFormatOptions === 0) {
+            // Nothing to do
+        } else if (hasFormatOptions === 1) {
+            // (NFO) Number Formatting Options
+            [pos, formatOptions] = parseNumberFormattingOptions(buffer, pos);
+        } else {
+            throw new Error(`Unexpected hasFormatOptions ${hasFormatOptions}`);
+        }
+
+        // (str) Target Culture
+        let targetCulture: GvasString;
+        [pos, targetCulture] = parseString(buffer, pos);
+
+        const value: GvasTextAsNumber = {flags, formatOptions, sourceValue, targetCulture};
+        // array.push(value);
+        return [pos, value];
+    } else {
+        throw new Error(`Unexpected component type ${componentType} with flags ${flags}`);
+    }
+}
+
+function parseFormatArgumentValue(buffer: ArrayBuffer, pos: number): [number, FormatArgumentValue] {
+    const type = new Uint8Array(buffer, pos++, 1)[0];
+    if (type === 0) {
+        const [value, extra] = new Int32Array(buffer.slice(pos, pos + 8));
+        pos += 8;
+        if (extra !== 0) throw new Error('Overflow');
+        return [pos, ['Int', value]];
+    } else if (type === 4) {
+        let text;
+        [pos, text] = parseText(buffer, pos);
+        return [pos, ['Text', text]];
+    } else {
+        throw new Error(`Unknown FormatArgumentValue type ${type}`);
+    }
+}
+
+function parseNumberFormattingOptions(buffer: ArrayBuffer, pos: number): [number, NumberFormattingOptions] {
+    // (b32) Always Include Sign
+    // (b32) Use Grouping
+    // (e8)  Rounding Mode
+    // (i32) Minimum Integral Digits
+    // (i32) Maximum Integral Digits
+    // (i32) Minimum Fractional Digits
+    // (i32) Maximum Fractional Digits
+
+    const uint32s = new Uint32Array(buffer.slice(pos, pos + 8));
+    const u8s = new Uint8Array(buffer, pos + 8, 1);
+    const int32s = new Int32Array(buffer.slice(pos + 9, pos + 25));
+
+    if (u8s[0] > RoundingMode.ToPositiveInfinity) {
+        throw new Error(`Invalid RoundingMode ${u8s[0]}`);
+    }
+
+    const alwaysIncludeSign = Boolean(uint32s[0]);
+    const useGrouping = Boolean(uint32s[1]);
+    const roundingMode: RoundingMode = u8s[0];
+    const minimumIntegralDigits = int32s[0];
+    const maximumIntegralDigits = int32s[1];
+    const minimumFractionalDigits = int32s[2];
+    const maximumFractionalDigits = int32s[3];
+
+    return [pos + 25, {
+        alwaysIncludeSign,
+        maximumFractionalDigits,
+        maximumIntegralDigits,
+        minimumFractionalDigits,
+        minimumIntegralDigits,
+        roundingMode,
+        useGrouping,
+    }];
 }
