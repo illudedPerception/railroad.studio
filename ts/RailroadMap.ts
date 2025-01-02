@@ -744,18 +744,17 @@ export class RailroadMap {
     private renderBackground(): Element {
         let image;
         let transform;
-        if (this.railroad.settings.gameLevelName === 'MesaPlains') {
-            image = 'MesaPlainsTopo.png';
-            transform = 'matrix(140.89,0,0,140.89,-300899.87,-300459.45)';
+        if (this.railroad.settings.gameLevelName === 'LakeValley') {
+            image = 'LakeValleyTopo.png';
+            transform = 'matrix(-93.16,0,0,-93.16,197453,197453)';
+            // image = 'LakeValleyMap2.png';
+            // transform = 'matrix(-200,0,0,-200,200000,200000)';
         } else if (this.railroad.settings.gameLevelName === 'AuroraFalls') {
-            image = 'AuroraFalls180.png';
-            transform = 'matrix(139.91,0,0,139.91,-300460.04,-300900.04)';
-        } else if (this.railroad.settings.gameLevelName === 'LakeValley') {
-            image = 'LakeValley180.png';
-            transform = 'matrix(91.88,0,0,91.88,-197454.05,-197454.05)';
+            image = 'AuroraFallsTopo.png';
+            transform = 'matrix(-139.13,0,0,-139.13,300900,300900)';
         } else {
-            image = 'PineValley180.png';
-            transform = 'matrix(92.95,0,0,92.95,-199953.52,-199953.52)';
+            image = 'PineValleyTopo.png';
+            transform = 'matrix(-96.80,0,0,-96.80,199951,199951)';
         }
         return this.layers.background
             .image(image)
